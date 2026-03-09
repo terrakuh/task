@@ -14,9 +14,14 @@ type (
 
 // WithAfterRun this task will run after the completion of id, regardless of success or error.
 func WithAfterRun[I, O any](h *Handle[I, O]) Option {
+	return WithAfterExternal(h.Done)
+}
+
+// WithAfterExternal adds a dependency that will resolve once done is closed or returns a value.
+func WithAfterExternal(done chan struct{}) Option {
 	return func(rc *runCtx) {
 		rc.dependencies = append(rc.dependencies, dependency{
-			done:      h.Done,
+			done:      done,
 			predicate: func() bool { return true },
 		})
 	}
@@ -47,12 +52,15 @@ func WithRetryFunc(retry RetryFunc) Option {
 	}
 }
 
+// WithRunAt will schedule the task to run after the given time has passed.
 func WithRunAt(time time.Time) Option {
 	return func(rc *runCtx) {
 		rc.runAt = time
 	}
 }
 
+// WithContext will add an additional context to the task. This context will be merged
+// with the initial context from [New].
 func WithContext(ctx context.Context) Option {
 	return func(rc *runCtx) {
 		rc.ctx = ctx

@@ -30,4 +30,7 @@ func Example() {
 
 	<-second.Done
 	fmt.Printf("Final result: %d\n", second.Output)
+
+	// Output:
+	// Final result: 0
 }

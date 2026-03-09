@@ -11,7 +11,14 @@ type (
 	ID uint64
 
 	Manager[I, O any] interface {
+		// Do will post the given task to one of the active workers. If the backlog is full, Do will block
+		// until the task was posted, unless any associated context was cancelled or the task manager was stopped.
 		Do(f Task[I, O], input I, options ...Option) (*Handle[I, O], error)
+
+		// Stop will cause the manager to reject any new tasks and start finishing up.
+		// Once all tasks are finished and the workers have joined the function will return.
+		//
+		// Calling Stop multiple times is not allowed.
 		Stop(stop Stop)
 	}
 
@@ -20,17 +27,23 @@ type (
 	}
 
 	RawHandle struct {
-		Done    chan struct{}
-		ID      ID
-		Err     error
-		Panic   any
-		Cancel  context.CancelFunc
+		// Done is closed once the task has finished and no further retries are pending.
+		Done chan struct{}
+		// ID is a - for a task manager instance - unique ID for each task. This has no further meaning.
+		ID ID
+		// Err is set to the final resulting error of the task once [RawHandle.Done] is closed.
+		Err error
+		// Panic will store the recovered panic from the task. The task will not be retried after a panic.
+		Panic  any
+		Cancel context.CancelFunc
+		// Retried is the amount of retried runs of the task.
 		Retried int64
 	}
 
 	Handle[I, O any] struct {
 		RawHandle
 
+		// Input is input argument for the task.
 		Input  I
 		Output O
 	}
@@ -86,6 +99,9 @@ func For[I, O any](ctx context.Context) Context[I, O] {
 	return val
 }
 
+// New creates a new task manager with n active worker goroutines and a task backlog of backlog.
+// Once all workers are busy and the backlog is full, any further call to [Manager.Do] will block.
+// The given context will be used as the root for the workers and any tasks.
 func New[I, O any](ctx context.Context, n, backlog int) Manager[I, O] {
 	if n <= 0 {
 		panic("invalid worker count")
@@ -142,7 +158,8 @@ func (m *manager[I, O]) Do(f Task[I, O], input I, options ...Option) (*Handle[I,
 			ctx:   nil,
 			retry: nil,
 		},
-		task: f,
+		handle: h,
+		task:   f,
 	}
 	for _, option := range options {
 		option(&task.runCtx)

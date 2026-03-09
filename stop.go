@@ -3,11 +3,12 @@ package task
 type Stop int
 
 const (
+	// StopGracefully will cause the stop function to wait until all active and pending tasks are completed.
 	StopGracefully Stop = iota
+	// StopImmediately will signal all active tasks to stop via [context.Context]. Pending tasks will not be run.
 	StopImmediately
 )
 
-// Stop will cause the manager to reject any new tasks and start finishing up.
 func (m *manager[I, O]) Stop(stop Stop) {
 	close(m.stopped)
 
