@@ -32,5 +32,5 @@ func Example() {
 	fmt.Printf("Final result: %d\n", second.Output)
 
 	// Output:
-	// Final result: 0
+	// Final result: 26
 }

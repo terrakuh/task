@@ -77,8 +77,9 @@ type (
 	}
 
 	dependency struct {
-		done      chan struct{}
-		predicate func() bool
+		done           chan struct{}
+		internalHandle any
+		predicate      func() bool
 	}
 
 	contextKey struct{}
@@ -131,6 +132,8 @@ func New[I, O any](ctx context.Context, n, backlog int) Manager[I, O] {
 }
 
 func (m *manager[I, O]) Do(f Task[I, O], input I, options ...Option) (*Handle[I, O], error) {
+	task := createTask(m.ctx, f, input, options...)
+
 	g := lock(&m.mu)
 	defer g.unlock()
 
@@ -141,49 +144,20 @@ func (m *manager[I, O]) Do(f Task[I, O], input I, options ...Option) (*Handle[I,
 	default:
 	}
 
-	id := m.idCounter
+	task.handle.ID = m.idCounter
 	m.idCounter++
-	h := &Handle[I, O]{
-		RawHandle: RawHandle{
-			Done:  make(chan struct{}),
-			ID:    id,
-			Err:   nil,
-			Panic: nil,
-		},
-		Input: input,
-	}
-
-	task := &task[I, O]{
-		runCtx: runCtx{
-			ctx:   nil,
-			retry: nil,
-		},
-		handle: h,
-		task:   f,
-	}
-	for _, option := range options {
-		option(&task.runCtx)
-	}
-
-	if task.ctx == nil {
-		task.ctx = m.ctx
-	} else {
-		task.ctx = mergeContexts(m.ctx, task.ctx)
-	}
-
-	task.ctx, h.Cancel = context.WithCancel(task.ctx)
 
 	// This task has a complex dependency structure and must be awaited.
 	if len(task.dependencies) != 0 || time.Now().Before(task.runAt) {
 		go m.waitDependencies(task)
-		return h, nil
+		return task.handle, nil
 	}
 
 	// Can be executed immediately.
 	g.unlock()
 	m.queueTask(task, true)
 
-	return h, nil
+	return task.handle, nil
 }
 
 func (m *manager[I, O]) worker() {
@@ -282,4 +256,49 @@ func (m *manager[I, O]) doTask(task *task[I, O]) {
 
 	task.handle.Cancel()
 	close(task.handle.Done)
+}
+
+func createTask[I, O any](ctx context.Context, f Task[I, O], input I, options ...Option) *task[I, O] {
+	task := &task[I, O]{
+		runCtx: runCtx{
+			ctx:   nil,
+			retry: nil,
+		},
+	}
+
+	for _, option := range options {
+		option(&task.runCtx)
+	}
+
+	taskCtx := Context[I, O]{}
+	for _, dep := range task.dependencies {
+		if dep.internalHandle != nil {
+			h, ok := dep.internalHandle.(*Handle[I, O])
+			if !ok {
+				panic("invalid handle as dependency")
+			}
+			taskCtx.Dependencies = append(taskCtx.Dependencies, h)
+		}
+	}
+
+	task.handle = &Handle[I, O]{
+		RawHandle: RawHandle{
+			Done:  make(chan struct{}),
+			Err:   nil,
+			Panic: nil,
+		},
+		Input: input,
+	}
+	task.task = f
+
+	if task.ctx == nil {
+		task.ctx = ctx
+	} else {
+		task.ctx = mergeContexts(ctx, task.ctx)
+	}
+
+	task.ctx, task.handle.Cancel = context.WithCancel(task.ctx)
+	task.ctx = context.WithValue(task.ctx, contextKey{}, taskCtx)
+
+	return task
 }

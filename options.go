@@ -14,15 +14,22 @@ type (
 
 // WithAfterRun this task will run after the completion of id, regardless of success or error.
 func WithAfterRun[I, O any](h *Handle[I, O]) Option {
-	return WithAfterExternal(h.Done)
+	return func(rc *runCtx) {
+		rc.dependencies = append(rc.dependencies, dependency{
+			done:           h.Done,
+			internalHandle: h,
+			predicate:      func() bool { return true },
+		})
+	}
 }
 
 // WithAfterExternal adds a dependency that will resolve once done is closed or returns a value.
 func WithAfterExternal(done chan struct{}) Option {
 	return func(rc *runCtx) {
 		rc.dependencies = append(rc.dependencies, dependency{
-			done:      done,
-			predicate: func() bool { return true },
+			done:           done,
+			internalHandle: nil,
+			predicate:      func() bool { return true },
 		})
 	}
 }
