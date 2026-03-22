@@ -34,11 +34,11 @@ func WithAfterExternal(done chan struct{}) Option {
 	}
 }
 
-// WithExpRetries retries the function with 2**x interval (from 2**-3 up to 2**25 or n). Meaning:
+// WithExpRetries retries the function with 2**x interval (from 2**-3 up to 2**15 or n). Meaning:
 //
-//	125ms, 250ms, 500ms, 1s, 2s, 4s, ..., 9h19m14s432ms
+//	125ms, 250ms, 500ms, 1s, 2s, 4s, ..., 9h6m8s
 func WithExpRetries(n int64) Option {
-	return WithExp2Retries(-3, 25, n)
+	return WithExp2Retries(-3, 15, n)
 }
 
 func WithExp2Retries(start, end, n int64) Option {
@@ -47,7 +47,7 @@ func WithExp2Retries(start, end, n int64) Option {
 			return time.Time{}, err
 		}
 
-		i := min(h.Retried, end) + start
+		i := min(h.Retried+start, end)
 		d := time.Duration(math.Exp2(float64(i))*1_000) * time.Millisecond
 		return time.Now().Add(d), nil
 	})
