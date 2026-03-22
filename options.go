@@ -16,9 +16,9 @@ type (
 func WithAfterRun[I, O any](h *Handle[I, O]) Option {
 	return func(rc *runCtx) {
 		rc.dependencies = append(rc.dependencies, dependency{
-			done:           h.Done,
-			internalHandle: h,
-			predicate:      func() bool { return true },
+			done:          h.Done,
+			genericHandle: &GenericHandle{&h.RawHandle, h},
+			predicate:     func() bool { return true },
 		})
 	}
 }
@@ -27,9 +27,9 @@ func WithAfterRun[I, O any](h *Handle[I, O]) Option {
 func WithAfterExternal(done chan struct{}) Option {
 	return func(rc *runCtx) {
 		rc.dependencies = append(rc.dependencies, dependency{
-			done:           done,
-			internalHandle: nil,
-			predicate:      func() bool { return true },
+			done:          done,
+			genericHandle: nil,
+			predicate:     func() bool { return true },
 		})
 	}
 }

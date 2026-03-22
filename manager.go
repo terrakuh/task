@@ -22,8 +22,8 @@ type (
 		Stop(stop Stop)
 	}
 
-	Context[I, O any] struct {
-		Dependencies []*Handle[I, O]
+	Context struct {
+		Dependencies []GenericHandle
 	}
 
 	RawHandle struct {
@@ -35,6 +35,7 @@ type (
 		Err error
 		// Panic will store the recovered panic from the task. The task will not be retried after a panic.
 		Panic  any
+		OK     bool
 		Cancel context.CancelFunc
 		// Retried is the amount of retried runs of the task.
 		Retried int64
@@ -46,6 +47,11 @@ type (
 		// Input is input argument for the task.
 		Input  I
 		Output O
+	}
+
+	GenericHandle struct {
+		Raw  *RawHandle
+		Full any
 	}
 
 	Task[I, O any] func(ctx context.Context, in I) (out O, err error)
@@ -77,9 +83,9 @@ type (
 	}
 
 	dependency struct {
-		done           chan struct{}
-		internalHandle any
-		predicate      func() bool
+		done          chan struct{}
+		genericHandle *GenericHandle
+		predicate     func() bool
 	}
 
 	contextKey struct{}
@@ -92,8 +98,8 @@ var (
 )
 
 // For will return the context info inside a task. Calling this function outside is not allowed.
-func For[I, O any](ctx context.Context) Context[I, O] {
-	val, ok := ctx.Value(contextKey{}).(Context[I, O])
+func For(ctx context.Context) Context {
+	val, ok := ctx.Value(contextKey{}).(Context)
 	if !ok {
 		panic("task.For must be used inside of a task")
 	}
@@ -252,6 +258,7 @@ func (m *manager[I, O]) doTask(task *task[I, O]) {
 		task.handle.Err = err
 	} else {
 		task.handle.Output = output
+		task.handle.OK = true
 	}
 
 	task.handle.Cancel()
@@ -270,14 +277,10 @@ func createTask[I, O any](ctx context.Context, f Task[I, O], input I, options ..
 		option(&task.runCtx)
 	}
 
-	taskCtx := Context[I, O]{}
+	taskCtx := Context{}
 	for _, dep := range task.dependencies {
-		if dep.internalHandle != nil {
-			h, ok := dep.internalHandle.(*Handle[I, O])
-			if !ok {
-				panic("invalid handle as dependency")
-			}
-			taskCtx.Dependencies = append(taskCtx.Dependencies, h)
+		if dep.genericHandle != nil {
+			taskCtx.Dependencies = append(taskCtx.Dependencies, *dep.genericHandle)
 		}
 	}
 
