@@ -78,6 +78,7 @@ type (
 	runCtx struct {
 		ctx          context.Context
 		retry        RetryFunc
+		onAfterCall  any
 		runAt        time.Time
 		dependencies []dependency
 	}
@@ -237,6 +238,16 @@ func (m *manager[I, O]) doTask(task *task[I, O]) {
 
 	output, err := task.task(task.ctx, task.handle.Input)
 
+	task.handle.Err = err
+	task.handle.OK = err == nil
+	if err == nil {
+		task.handle.Output = output
+	}
+
+	if task.onAfterCall != nil {
+		task.onAfterCall.(OnAfterCallFunc[I, O])(task.handle)
+	}
+
 	// Retry.
 	if err != nil && task.retry != nil && !errors.Is(err, context.Canceled) {
 		after, err := task.retry(&task.handle.RawHandle, err)
@@ -254,13 +265,6 @@ func (m *manager[I, O]) doTask(task *task[I, O]) {
 	}
 
 	// Task finished.
-	if err != nil {
-		task.handle.Err = err
-	} else {
-		task.handle.Output = output
-		task.handle.OK = true
-	}
-
 	task.handle.Cancel()
 	close(task.handle.Done)
 }
@@ -275,6 +279,14 @@ func createTask[I, O any](ctx context.Context, f Task[I, O], input I, options ..
 
 	for _, option := range options {
 		option(&task.runCtx)
+	}
+
+	// Check types of relevant options.
+	if task.onAfterCall != nil {
+		_, ok := task.onAfterCall.(OnAfterCallFunc[I, O])
+		if !ok {
+			panic("invalid OnAfterCallFunc")
+		}
 	}
 
 	taskCtx := Context{}

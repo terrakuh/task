@@ -10,6 +10,8 @@ type (
 	Option func(*runCtx)
 
 	RetryFunc func(h *RawHandle, err error) (time.Time, error)
+
+	OnAfterCallFunc[I, O any] func(h *Handle[I, O])
 )
 
 // WithAfterRun this task will run after the completion of id, regardless of success or error.
@@ -38,16 +40,20 @@ func WithAfterExternal(done chan struct{}) Option {
 //
 //	125ms, 250ms, 500ms, 1s, 2s, 4s, ..., 9h6m8s
 func WithExpRetries(n int64) Option {
-	return WithExp2Retries(-3, 15, n)
+	end := min(-3+n, 15)
+	return WithExp2Retries(-3, end, n-(end+3))
 }
 
-func WithExp2Retries(start, end, n int64) Option {
+func WithExp2Retries(start, end, extra int64) Option {
+	if start > end || extra < 0 {
+		panic("invalid args")
+	}
 	return WithRetryFunc(func(h *RawHandle, err error) (time.Time, error) {
-		if h.Retried >= n {
+		i := min(h.Retried+start, end)
+		if i == end && h.Retried+start-end >= extra {
 			return time.Time{}, err
 		}
 
-		i := min(h.Retried+start, end)
 		d := time.Duration(math.Exp2(float64(i))*1_000) * time.Millisecond
 		return time.Now().Add(d), nil
 	})
@@ -71,5 +77,13 @@ func WithRunAt(time time.Time) Option {
 func WithContext(ctx context.Context) Option {
 	return func(rc *runCtx) {
 		rc.ctx = ctx
+	}
+}
+
+// WithOnAfterCall registers a callback that is called each time after the task has run.
+// This callback is executed before the retry function.
+func WithOnAfterCall[I, O any](fn OnAfterCallFunc[I, O]) Option {
+	return func(rc *runCtx) {
+		rc.onAfterCall = fn
 	}
 }
